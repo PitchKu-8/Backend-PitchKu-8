@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Environment configuration
+.env
+.env.local
+.env.*.local
+
+# Logs and debugging output
+logs/
+*.log
+npm-debug.log*
+
+# Test and coverage reports
+coverage/
+
+# Supabase local development
+supabase/.temp/
+supabase/.branches/
+
+# IDE and editor configuration
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
+
+# Puppeteer browser cache
+.cache/
+
+# Miscellaneous sensitive files
+*.pem
