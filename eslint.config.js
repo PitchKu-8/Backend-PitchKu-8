@@ -61,14 +61,29 @@ module.exports = tseslint.config(
           argsIgnorePattern: "^_",
         },
       ],
-      "boundaries/element-types": [
+      "boundaries/dependencies": [
         "error",
         {
           default: "disallow",
-          rules: [
-            { from: "modules", allow: ["shared", "config"] },
-            { from: "shared", allow: ["shared", "config"] },
-            { from: "config", allow: ["config"] },
+          policies: [
+            {
+              from: { element: { type: "modules" } },
+              allow: [
+                { to: { element: { type: "shared" } } },
+                { to: { element: { type: "config" } } },
+              ],
+            },
+            {
+              from: { element: { type: "shared" } },
+              allow: [
+                { to: { element: { type: "shared" } } },
+                { to: { element: { type: "config" } } },
+              ],
+            },
+            {
+              from: { element: { type: "config" } },
+              allow: [{ to: { element: { type: "config" } } }],
+            },
           ],
         },
       ],
