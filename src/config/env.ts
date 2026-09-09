@@ -2,6 +2,17 @@
 import "dotenv/config";
 import { z } from "zod";
 
+/**
+ * Treats empty string as undefined before validation. Needed because
+ * dotenv reads `KEY=` (no value) as an empty string, not as an absent
+ * variable — so a plain `.optional()` alone would still fail `.min(1)`.
+ */
+const optionalString = () =>
+  z.preprocess(
+    (val) => (val === "" ? undefined : val),
+    z.string().min(1).optional(),
+  );
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   NODE_ENV: z
@@ -12,21 +23,20 @@ const envSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 
-  LLM_API_KEY: z.string().min(1),
-  LLM_MODEL_OUTLINE: z.string().min(1),
-  LLM_MODEL_CONTENT: z.string().min(1),
+  // Optional for now — not yet consumed by any module. Each provider
+  // client (llm-client.ts, image-service.ts) is responsible for throwing
+  // a clear error at the point of use if its required key is missing,
+  // rather than blocking server startup for modules that don't need it yet.
+  LLM_API_KEY: optionalString(),
+  LLM_MODEL_OUTLINE: optionalString(),
+  LLM_MODEL_CONTENT: optionalString(),
 
-  UNSPLASH_ACCESS_KEY: z.string().min(1),
-  PEXELS_API_KEY: z.string().min(1),
+  UNSPLASH_ACCESS_KEY: optionalString(),
+  PEXELS_API_KEY: optionalString(),
 
   MAX_LOGO_FILE_SIZE_MB: z.coerce.number().int().positive().default(2),
 });
 
-/**
- * Validate environment variables once at application startup — if any required variable
- * is missing in .env, the process halts immediately with a clear message,
- * rather than failing silently later when a specific module is invoked.
- */
 function loadEnv() {
   const parsed = envSchema.safeParse(process.env);
 

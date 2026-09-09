@@ -43,6 +43,8 @@ export const ErrorCodeSchema = z.enum([
   // RESOURCE_*
   "RESOURCE_NOT_FOUND",
   "RESOURCE_STATE_CONFLICT",
+  // INTERNAL_*
+  "INTERNAL_SERVER_ERROR",
 ]);
 
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;

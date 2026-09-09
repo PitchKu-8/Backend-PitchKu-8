@@ -1,0 +1,55 @@
+// src/app.ts
+
+import {
+  authMiddleware,
+  syncProfileHandler,
+  loginHandler,
+  signupHandler,
+  SyncProfileRequestSchema,
+  LoginRequestSchema,
+  SignupRequestSchema,
+} from "@modules/auth";
+import { errorHandler } from "@shared/middleware/error-handler";
+import { validateRequest } from "@shared/middleware/request-validator";
+import express, { type Express } from "express";
+
+/**
+ * Express application factory. Kept separate from server.ts so the app
+ * instance can be imported directly in tests (via Supertest) without
+ * needing to bind to an actual port.
+ */
+export function createApp(): Express {
+  const app = express();
+
+  app.use(express.json());
+
+  // Health check — useful for deployment platforms (Railway/Fly.io) to
+  // verify the service is up before routing traffic to it.
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ success: true, data: { status: "ok" } });
+  });
+
+  app.post(
+    "/v1/auth/signup",
+    validateRequest(SignupRequestSchema),
+    signupHandler,
+  );
+  app.post("/v1/auth/login", validateRequest(LoginRequestSchema), loginHandler);
+
+  // =========================================
+  // Auth routes
+  // =========================================
+  app.post(
+    "/v1/auth/sync-profile",
+    authMiddleware,
+    validateRequest(SyncProfileRequestSchema),
+    syncProfileHandler,
+  );
+
+  // Error handler MUST be registered last — Express identifies
+  // error-handling middleware by its 4-parameter signature, and only
+  // middleware registered after a route can catch errors thrown from it.
+  app.use(errorHandler);
+
+  return app;
+}
