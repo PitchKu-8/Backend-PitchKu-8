@@ -9,6 +9,13 @@ import {
   LoginRequestSchema,
   SignupRequestSchema,
 } from "@modules/auth";
+import {
+  logoUploadMiddleware,
+  uploadLogoHandler,
+  upsertBrandKitHandler,
+  getActiveBrandKitHandler,
+  UpsertBrandKitRequestSchema,
+} from "@modules/brand-kit";
 import { errorHandler } from "@shared/middleware/error-handler";
 import { validateRequest } from "@shared/middleware/request-validator";
 import express, { type Express } from "express";
@@ -35,6 +42,22 @@ export function createApp(): Express {
     signupHandler,
   );
   app.post("/v1/auth/login", validateRequest(LoginRequestSchema), loginHandler);
+
+  app.post(
+    "/v1/brand-kits/logo-upload",
+    authMiddleware,
+    logoUploadMiddleware,
+    uploadLogoHandler,
+  );
+
+  app.post(
+    "/v1/brand-kits",
+    authMiddleware,
+    validateRequest(UpsertBrandKitRequestSchema),
+    upsertBrandKitHandler,
+  );
+
+  app.get("/v1/brand-kits/active", authMiddleware, getActiveBrandKitHandler);
 
   // =========================================
   // Auth routes
