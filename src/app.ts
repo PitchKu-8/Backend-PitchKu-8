@@ -16,6 +16,15 @@ import {
   getActiveBrandKitHandler,
   UpsertBrandKitRequestSchema,
 } from "@modules/brand-kit";
+import {
+  createProjectHandler,
+  getProjectHandler,
+  listProjectsHandler,
+  deleteProjectHandler,
+  duplicateProjectHandler,
+  CreateProjectRequestSchema,
+  ListProjectsQuerySchema,
+} from "@modules/projects";
 import { errorHandler } from "@shared/middleware/error-handler";
 import { validateRequest } from "@shared/middleware/request-validator";
 import express, { type Express } from "express";
@@ -36,6 +45,9 @@ export function createApp(): Express {
     res.status(200).json({ success: true, data: { status: "ok" } });
   });
 
+  // ========================================
+  // signup/login routes
+  // ========================================
   app.post(
     "/v1/auth/signup",
     validateRequest(SignupRequestSchema),
@@ -43,6 +55,9 @@ export function createApp(): Express {
   );
   app.post("/v1/auth/login", validateRequest(LoginRequestSchema), loginHandler);
 
+  // ========================================
+  // brand-kit routes
+  // ========================================
   app.post(
     "/v1/brand-kits/logo-upload",
     authMiddleware,
@@ -58,6 +73,31 @@ export function createApp(): Express {
   );
 
   app.get("/v1/brand-kits/active", authMiddleware, getActiveBrandKitHandler);
+
+  // =========================================
+  // Project routes
+  // =========================================
+  app.post(
+    "/v1/projects",
+    authMiddleware,
+    validateRequest(CreateProjectRequestSchema),
+    createProjectHandler,
+  );
+
+  app.get(
+    "/v1/projects",
+    authMiddleware,
+    validateRequest(ListProjectsQuerySchema, "query"),
+    listProjectsHandler,
+  );
+
+  app.get("/v1/projects/:id", authMiddleware, getProjectHandler);
+  app.delete("/v1/projects/:id", authMiddleware, deleteProjectHandler);
+  app.post(
+    "/v1/projects/:id/duplicate",
+    authMiddleware,
+    duplicateProjectHandler,
+  );
 
   // =========================================
   // Auth routes

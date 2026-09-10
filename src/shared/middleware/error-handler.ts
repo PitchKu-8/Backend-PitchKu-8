@@ -78,7 +78,7 @@ export function errorHandler(
   const response: ErrorResponse = {
     success: false,
     error: {
-      code: "RESOURCE_NOT_FOUND", // temporary fallback, see notes below
+      code: "INTERNAL_SERVER_ERROR",
       message: "An internal server error occurred",
     },
   };
