@@ -1,6 +1,7 @@
 // src/modules/ai-engine/ai-engine.service.ts
 import { env } from "@config/env";
 import { getActiveBrandKit } from "@modules/brand-kit";
+import { searchImage } from "@modules/image-service";
 import {
   appendDeckVersion,
   findProjectById,
@@ -222,10 +223,31 @@ export async function generateContent(
   // the LLM-produced slides array, before it's ever persisted.
   const validated = PitchKuDeckPayloadSchema.parse(assembledPayload);
 
+  // FR-03.3: resolve each slide's imageQuery into an actual stock photo
+  // URL. Runs after schema validation (so we know the slide shapes are
+  // correct) but before persistence, so deck_versions always stores a
+  // usable imageUrl rather than requiring a separate lookup later.
+  // searchImage() never throws (see image-service.service.ts), so a
+  // failed lookup for one slide never blocks the others.
+  const slidesWithImages = await Promise.all(
+    validated.slides.map(async (slide) => {
+      if (!slide.imageQuery) {
+        return slide;
+      }
+      const image = await searchImage(slide.imageQuery);
+      return { ...slide, imageUrl: image.url };
+    }),
+  );
+
+  const finalPayload: PitchKuDeckPayload = {
+    ...validated,
+    slides: slidesWithImages,
+  };
+
   await appendDeckVersion(projectId, {
     businessContext: versionPayload.businessContext,
     outline: versionPayload.outline,
-    slides: validated.slides,
+    slides: finalPayload.slides,
   } satisfies DeckVersionPayload);
 
   await updateProjectStatus(projectId, "completed");
@@ -240,5 +262,5 @@ export async function generateContent(
     "Content generated",
   );
 
-  return validated;
+  return finalPayload;
 }
