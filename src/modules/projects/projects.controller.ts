@@ -10,20 +10,6 @@ import type {
 } from "./projects.schema";
 import * as projectsService from "./projects.service";
 
-type ProjectService = {
-  createProject: (
-    userId: string,
-    input: CreateProjectRequest,
-  ) => Promise<ProjectResponse>;
-  getProjectById: (userId: string, id: string) => Promise<ProjectResponse>;
-  listProjects: (
-    userId: string,
-    query: ListProjectsQuery,
-  ) => Promise<{ items: ProjectResponse[]; total: number }>;
-  deleteProject: (userId: string, id: string) => Promise<void>;
-  duplicateProject: (userId: string, id: string) => Promise<ProjectResponse>;
-};
-
 const projectsApi = projectsService;
 
 function requireUserId(req: Request): string {

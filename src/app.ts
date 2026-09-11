@@ -1,5 +1,10 @@
 // src/app.ts
-
+import {
+  generateOutlineHandler,
+  confirmOutlineHandler,
+  generateContentHandler,
+  ConfirmOutlineRequestSchema,
+} from "@modules/ai-engine";
 import {
   authMiddleware,
   syncProfileHandler,
@@ -98,6 +103,18 @@ export function createApp(): Express {
     authMiddleware,
     duplicateProjectHandler,
   );
+
+  // =========================================
+  // AI routes
+  // =========================================
+  app.post("/v1/projects/:id/outline", authMiddleware, generateOutlineHandler);
+  app.patch(
+    "/v1/projects/:id/outline",
+    authMiddleware,
+    validateRequest(ConfirmOutlineRequestSchema),
+    confirmOutlineHandler,
+  );
+  app.post("/v1/projects/:id/content", authMiddleware, generateContentHandler);
 
   // =========================================
   // Auth routes

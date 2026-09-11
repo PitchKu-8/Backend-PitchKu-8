@@ -28,6 +28,7 @@ const envSchema = z.object({
   // a clear error at the point of use if its required key is missing,
   // rather than blocking server startup for modules that don't need it yet.
   LLM_API_KEY: optionalString(),
+  LLM_BASE_URL: optionalString(),
   LLM_MODEL_OUTLINE: optionalString(),
   LLM_MODEL_CONTENT: optionalString(),
 

@@ -203,3 +203,81 @@ export async function duplicateProject(
 
   return toProjectResponse(newProject);
 }
+
+/**
+ * Reads the latest deck_versions snapshot for a project — used by
+ * ai-engine to retrieve the stored businessContext (for outline
+ * generation) and the confirmed outline (for content generation).
+ */
+export async function getLatestDeckVersion(
+  projectId: string,
+): Promise<{
+  versionNumber: number;
+  slidesJson: Record<string, unknown>;
+} | null> {
+  const { data, error } = await supabaseAdmin
+    .from("deck_versions")
+    .select("version_number, slides_json")
+    .eq("project_id", projectId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    versionNumber: data.version_number as number,
+    slidesJson: data.slides_json as Record<string, unknown>,
+  };
+}
+
+/**
+ * Appends a new deck_versions snapshot. Each save (outline confirmed,
+ * content generated, manual edit) creates a new version row rather than
+ * overwriting the previous one — this is what makes "Simpan Proyek"
+ * (FR section 3) a true version history, not just a single mutable row.
+ */
+export async function appendDeckVersion(
+  projectId: string,
+  slidesJson: Record<string, unknown>,
+): Promise<number> {
+  const latest = await getLatestDeckVersion(projectId);
+  const nextVersion = (latest?.versionNumber ?? 0) + 1;
+
+  const { error } = await supabaseAdmin.from("deck_versions").insert({
+    project_id: projectId,
+    version_number: nextVersion,
+    slides_json: slidesJson,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return nextVersion;
+}
+
+/**
+ * Updates a project's status (e.g. draft -> completed once content
+ * generation succeeds). Separate from the general project update flow
+ * since this is a narrow, ai-engine-triggered state transition.
+ */
+export async function updateProjectStatus(
+  projectId: string,
+  status: "draft" | "completed",
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("projects")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", projectId);
+
+  if (error) {
+    throw error;
+  }
+}

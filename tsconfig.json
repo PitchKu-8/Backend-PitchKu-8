@@ -26,9 +26,9 @@
     "sourceMap": true,
 
     "paths": {
-      "@modules/*": ["src/modules/*"],
-      "@shared/*": ["src/shared/*"],
-      "@config/*": ["src/config/*"]
+      "@modules/*": ["./src/modules/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@config/*": ["./src/config/*"]
     }
   },
   "include": ["src/**/*.ts"],
