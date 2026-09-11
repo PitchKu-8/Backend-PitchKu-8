@@ -70,8 +70,9 @@ const MetricsGridSchema = z.object({
   title: titleField,
   cards: z
     .array(CardSchema)
-    .min(3, "metrics_grid requires at least 3 metrics")
-    .max(4, "metrics_grid allows at most 4 metrics"),
+    .min(3, "metrics_grid minimal 3 metrik")
+    .max(4, "metrics_grid maksimal 4 metrik"),
+  imageUrl: imageUrlField,
   imageQuery: imageQueryField,
 });
 
@@ -79,7 +80,8 @@ const CardGridSchema = z.object({
   slideNumber: slideNumberField,
   layout: z.literal("card_grid"),
   title: titleField,
-  cards: z.array(CardSchema).max(4, "maximum 4 cards per slide"),
+  cards: z.array(CardSchema).max(4, "maksimal 4 card per slide"),
+  imageUrl: imageUrlField,
   imageQuery: imageQueryField,
 });
 

@@ -21,6 +21,7 @@ import {
   getActiveBrandKitHandler,
   UpsertBrandKitRequestSchema,
 } from "@modules/brand-kit";
+import { exportPptxHandler, exportPdfHandler } from "@modules/export-engine";
 import {
   createProjectHandler,
   getProjectHandler,
@@ -115,6 +116,12 @@ export function createApp(): Express {
     confirmOutlineHandler,
   );
   app.post("/v1/projects/:id/content", authMiddleware, generateContentHandler);
+
+  // =========================================
+  // Export routes
+  // =========================================
+  app.post("/v1/projects/:id/export/pptx", authMiddleware, exportPptxHandler);
+  app.post("/v1/projects/:id/export/pdf", authMiddleware, exportPdfHandler);
 
   // =========================================
   // Auth routes

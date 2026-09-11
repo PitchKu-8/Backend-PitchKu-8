@@ -6,3 +6,4 @@ export {
 } from "./ai-engine.controller";
 export { ConfirmOutlineRequestSchema } from "./ai-engine.schema";
 export type { ConfirmOutlineRequest } from "./ai-engine.schema";
+export type { DeckVersionPayload } from "./ai-engine.types";
