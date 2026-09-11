@@ -11,3 +11,4 @@ export type {
   BrandKitResponse,
   LogoUploadResponse,
 } from "./brand-kit.schema";
+export { getActiveBrandKit } from "./brand-kit.service";

@@ -10,6 +10,12 @@ export {
   CreateProjectRequestSchema,
   ListProjectsQuerySchema,
 } from "./projects.schema";
+export {
+  getLatestDeckVersion,
+  appendDeckVersion,
+  updateProjectStatus,
+  findProjectById,
+} from "./projects.repository";
 export type {
   CreateProjectRequest,
   ListProjectsQuery,
