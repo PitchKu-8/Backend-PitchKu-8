@@ -1,6 +1,7 @@
 // src/modules/ai-engine/ai-engine.service.ts
 import { env } from "@config/env";
 import { getActiveBrandKit } from "@modules/brand-kit";
+import { logGeneration } from "@modules/generation-logs";
 import { searchImage } from "@modules/image-service";
 import {
   appendDeckVersion,
@@ -42,11 +43,21 @@ function requireLlmConfig(): { outlineModel: string; contentModel: string } {
   };
 }
 
+const OutlineGenerationOutputSchema = z.object({
+  outline: OutlineSchema,
+});
+
+const ContentGenerationOutputSchema = z.object({
+  slides: z.array(SlideSchema).min(5).max(12),
+});
+
 /**
  * Stage 1: generates the slide outline (titles + objectives only).
  * Reads the businessContext saved at project creation time, calls the
  * LLM with schema-validated retry (FR-03.4), and appends a new
- * deck_versions row containing the generated outline.
+ * deck_versions row containing the generated outline. Every attempt's
+ * outcome (success/retry/failed) is recorded to generation_logs
+ * (FR-06.2) regardless of whether it ultimately succeeds.
  */
 export async function generateOutline(
   userId: string,
@@ -69,21 +80,50 @@ export async function generateOutline(
   const versionPayload =
     latestVersion.slidesJson as unknown as DeckVersionPayload;
 
-  const result = await generateStructuredWithRetry({
-    model: outlineModel,
-    systemPrompt: buildOutlineSystemPrompt(),
-    buildUserPrompt: (correctionNote) => {
-      const base = buildOutlineUserPrompt(
-        project.templateType,
-        versionPayload.businessContext,
-      );
-      return correctionNote
-        ? `${base}\n\nYour previous attempt had these issues, please fix them:\n${correctionNote}`
-        : base;
-    },
-    schema: OutlineGenerationOutputSchema,
-    maxTokens: 2000,
-    logAction: "generateOutline",
+  const startedAt = Date.now();
+
+  let result: Awaited<
+    ReturnType<typeof generateStructuredWithRetry<{ outline: Outline }>>
+  >;
+  try {
+    result = await generateStructuredWithRetry({
+      model: outlineModel,
+      systemPrompt: buildOutlineSystemPrompt(),
+      buildUserPrompt: (correctionNote) => {
+        const base = buildOutlineUserPrompt(
+          project.templateType,
+          versionPayload.businessContext,
+        );
+        return correctionNote
+          ? `${base}\n\nYour previous attempt had these issues, please fix them:\n${correctionNote}`
+          : base;
+      },
+      schema: OutlineGenerationOutputSchema,
+      maxTokens: 2000,
+      logAction: "generateOutline",
+    });
+  } catch (error) {
+    await logGeneration({
+      projectId,
+      stage: "outline",
+      modelName: outlineModel,
+      promptTokens: 0,
+      completionTokens: 0,
+      durationMs: Date.now() - startedAt,
+      status: "failed",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+    throw error;
+  }
+
+  await logGeneration({
+    projectId,
+    stage: "outline",
+    modelName: outlineModel,
+    promptTokens: result.usage.inputTokens,
+    completionTokens: result.usage.outputTokens,
+    durationMs: Date.now() - startedAt,
+    status: result.retryCount > 0 ? "retry" : "success",
   });
 
   await appendDeckVersion(projectId, {
@@ -106,8 +146,9 @@ export async function generateOutline(
 
 /**
  * Wizard step 5 (FR-02.3): the user edits the outline after Stage 1.
- * Pure CRUD — no LLM call. Appends a new deck_versions row with the
- * user-edited outline, preserving businessContext.
+ * Pure CRUD — no LLM call, no generation_logs entry (nothing to log).
+ * Appends a new deck_versions row with the user-edited outline,
+ * preserving businessContext.
  */
 export async function confirmOutline(
   userId: string,
@@ -137,23 +178,13 @@ export async function confirmOutline(
   return outline;
 }
 
-const ContentGenerationOutputSchema = z.object({
-  slides: z.array(SlideSchema).min(5).max(12),
-});
-
-const OutlineGenerationOutputSchema = z.object({
-  outline: OutlineSchema,
-});
 /**
  * Stage 2: generates full slide content from the confirmed outline.
  * The LLM only produces the "slides" array — deckId, template, and
  * brandKit are assembled locally and the combined payload is validated
  * once more against PitchKuDeckPayloadSchema before being persisted,
  * so a malformed assembly step can never slip through as a "valid deck".
- *
- * Note: imageUrl population from imageQuery (FR-03.3, stock photo
- * lookup) is intentionally deferred to the image-service module, not
- * yet implemented — slides are saved with imageQuery only for now.
+ * Every LLM attempt is recorded to generation_logs (FR-06.2).
  */
 export async function generateContent(
   userId: string,
@@ -189,22 +220,56 @@ export async function generateContent(
     );
   }
 
-  const result = await generateStructuredWithRetry({
-    model: contentModel,
-    systemPrompt: buildContentSystemPrompt(),
-    buildUserPrompt: (correctionNote) => {
-      const base = buildContentUserPrompt(
-        project.templateType,
-        versionPayload.businessContext,
-        versionPayload.outline!,
-      );
-      return correctionNote
-        ? `${base}\n\nYour previous attempt had these issues, please fix them:\n${correctionNote}`
-        : base;
-    },
-    schema: ContentGenerationOutputSchema,
-    maxTokens: 8000,
-    logAction: "generateContent",
+  const confirmedOutline = versionPayload.outline;
+  const startedAt = Date.now();
+
+  let result: Awaited<
+    ReturnType<
+      typeof generateStructuredWithRetry<{
+        slides: PitchKuDeckPayload["slides"];
+      }>
+    >
+  >;
+  try {
+    result = await generateStructuredWithRetry({
+      model: contentModel,
+      systemPrompt: buildContentSystemPrompt(),
+      buildUserPrompt: (correctionNote) => {
+        const base = buildContentUserPrompt(
+          project.templateType,
+          versionPayload.businessContext,
+          confirmedOutline,
+        );
+        return correctionNote
+          ? `${base}\n\nYour previous attempt had these issues, please fix them:\n${correctionNote}`
+          : base;
+      },
+      schema: ContentGenerationOutputSchema,
+      maxTokens: 8000,
+      logAction: "generateContent",
+    });
+  } catch (error) {
+    await logGeneration({
+      projectId,
+      stage: "content",
+      modelName: contentModel,
+      promptTokens: 0,
+      completionTokens: 0,
+      durationMs: Date.now() - startedAt,
+      status: "failed",
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+    throw error;
+  }
+
+  await logGeneration({
+    projectId,
+    stage: "content",
+    modelName: contentModel,
+    promptTokens: result.usage.inputTokens,
+    completionTokens: result.usage.outputTokens,
+    durationMs: Date.now() - startedAt,
+    status: result.retryCount > 0 ? "retry" : "success",
   });
 
   const assembledPayload: PitchKuDeckPayload = {
@@ -224,11 +289,8 @@ export async function generateContent(
   const validated = PitchKuDeckPayloadSchema.parse(assembledPayload);
 
   // FR-03.3: resolve each slide's imageQuery into an actual stock photo
-  // URL. Runs after schema validation (so we know the slide shapes are
-  // correct) but before persistence, so deck_versions always stores a
-  // usable imageUrl rather than requiring a separate lookup later.
-  // searchImage() never throws (see image-service.service.ts), so a
-  // failed lookup for one slide never blocks the others.
+  // URL. searchImage() never throws, so a failed lookup for one slide
+  // never blocks the others.
   const slidesWithImages = await Promise.all(
     validated.slides.map(async (slide) => {
       if (!slide.imageQuery) {
