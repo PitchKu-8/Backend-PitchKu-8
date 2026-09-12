@@ -1,11 +1,11 @@
 // src/modules/ai-engine/ai-engine.prompt.ts
-import type { BusinessContext, TemplateType } from "@modules/projects";
+import type { BusinessContext, TemplateType } from '@modules/projects';
 
 const TEMPLATE_LABELS: Record<TemplateType, string> = {
-  company_profile: "Company Profile",
-  penawaran_produk: "Penawaran Produk",
-  proposal_kerjasama: "Proposal Kerja Sama",
-  laporan_ringkas: "Laporan Ringkas",
+  company_profile: 'Company Profile',
+  penawaran_produk: 'Penawaran Produk',
+  proposal_kerjasama: 'Proposal Kerja Sama',
+  laporan_ringkas: 'Laporan Ringkas',
 };
 
 /**
