@@ -1,7 +1,7 @@
 // src/modules/auth/auth.service.ts
-import { createModuleLogger } from "@shared/lib/logger";
-import { supabaseAdmin } from "@shared/lib/supabase-client";
-import { supabaseAuthClient } from "@shared/lib/supabase-client";
+import { createModuleLogger } from '@shared/lib/logger';
+import { supabaseAdmin } from '@shared/lib/supabase-client';
+import { supabaseAuthClient } from '@shared/lib/supabase-client';
 
 import type {
   ProfileResponse,
@@ -9,9 +9,9 @@ import type {
   AuthSessionResponse,
   LoginRequest,
   SignupRequest,
-} from "./auth.schema";
+} from './auth.schema';
 
-const log = createModuleLogger("auth");
+const log = createModuleLogger('auth');
 
 /**
  * Upsert a profile row for the given user.
@@ -40,14 +40,11 @@ export async function login(input: LoginRequest): Promise<AuthSessionResponse> {
   });
 
   if (error || !data.session || !data.user) {
-    log.warn(
-      { action: "login", email: input.email, error: error?.message },
-      "Login failed",
-    );
-    throw error ?? new Error("Login failed: no session returned");
+    log.warn({ action: 'login', email: input.email, error: error?.message }, 'Login failed');
+    throw error ?? new Error('Login failed: no session returned');
   }
 
-  log.info({ action: "login", userId: data.user.id }, "Login successful");
+  log.info({ action: 'login', userId: data.user.id }, 'Login successful');
 
   return {
     accessToken: data.session.access_token,
@@ -61,35 +58,28 @@ export async function login(input: LoginRequest): Promise<AuthSessionResponse> {
 /**
  * Thin proxy over Supabase Auth's signup. Same rationale as login().
  */
-export async function signup(
-  input: SignupRequest,
-): Promise<AuthSessionResponse> {
+export async function signup(input: SignupRequest): Promise<AuthSessionResponse> {
   const { data, error } = await supabaseAuthClient.auth.signUp({
     email: input.email,
     password: input.password,
   });
 
   if (error || !data.user) {
-    log.warn(
-      { action: "signup", email: input.email, error: error?.message },
-      "Signup failed",
-    );
-    throw error ?? new Error("Signup failed: no user returned");
+    log.warn({ action: 'signup', email: input.email, error: error?.message }, 'Signup failed');
+    throw error ?? new Error('Signup failed: no user returned');
   }
 
   // If email confirmation is enabled in Supabase, data.session will be
   // null here — the user must confirm their email before a session exists.
   if (!data.session) {
     log.info(
-      { action: "signup", userId: data.user.id },
-      "Signup successful, email confirmation required before login",
+      { action: 'signup', userId: data.user.id },
+      'Signup successful, email confirmation required before login',
     );
-    throw new Error(
-      "Signup successful, but email confirmation is required before you can log in",
-    );
+    throw new Error('Signup successful, but email confirmation is required before you can log in');
   }
 
-  log.info({ action: "signup", userId: data.user.id }, "Signup successful");
+  log.info({ action: 'signup', userId: data.user.id }, 'Signup successful');
 
   return {
     accessToken: data.session.access_token,
@@ -105,27 +95,24 @@ export async function syncProfile(
   input: SyncProfileRequest,
 ): Promise<ProfileResponse> {
   const { data, error } = await supabaseAdmin
-    .from("profiles")
+    .from('profiles')
     .upsert(
       {
         id: userId,
         full_name: input.fullName,
         company_name: input.companyName,
       },
-      { onConflict: "id" },
+      { onConflict: 'id' },
     )
-    .select("id, full_name, company_name, created_at")
+    .select('id, full_name, company_name, created_at')
     .single();
 
   if (error) {
-    log.error(
-      { action: "syncProfile", userId, error: error.message },
-      "Failed to sync profile",
-    );
+    log.error({ action: 'syncProfile', userId, error: error.message }, 'Failed to sync profile');
     throw error;
   }
 
-  log.info({ action: "syncProfile", userId }, "Profile synced successfully");
+  log.info({ action: 'syncProfile', userId }, 'Profile synced successfully');
 
   return {
     id: data.id as string,
@@ -133,4 +120,15 @@ export async function syncProfile(
     companyName: data.company_name as string | null,
     createdAt: data.created_at as string,
   };
+}
+
+export async function logout(accessToken: string): Promise<void> {
+  const { error } = await supabaseAdmin.auth.admin.signOut(accessToken);
+
+  if (error) {
+    log.warn({ action: 'logout', error: error.message }, 'Logout failed');
+    throw error;
+  }
+
+  log.info({ action: 'logout' }, 'Session invalidated');
 }

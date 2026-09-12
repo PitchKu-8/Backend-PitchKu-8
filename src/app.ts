@@ -11,6 +11,7 @@ import {
   syncProfileHandler,
   loginHandler,
   signupHandler,
+  logoutHandler,
   SyncProfileRequestSchema,
   LoginRequestSchema,
   SignupRequestSchema,
@@ -62,10 +63,11 @@ export function createApp(): Express {
   });
 
   // ========================================
-  // signup/login routes
+  // signup/login/logout routes
   // ========================================
   app.post('/v1/auth/signup', validateRequest(SignupRequestSchema), signupHandler);
   app.post('/v1/auth/login', validateRequest(LoginRequestSchema), loginHandler);
+  app.post('/v1/auth/logout', authMiddleware, logoutHandler);
 
   // ========================================
   // brand-kit routes
