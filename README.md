@@ -1,194 +1,216 @@
 # PitchKu — Backend API
 
-**AI-powered presentation generator backend for Indonesian SMEs (UMKM).**
-Structured LLM orchestration, schema-validated deck generation, and native editable PPTX/PDF export.
+AI presentation generator backend built for Indonesian SMEs (UMKM). Two-stage
+LLM orchestration, schema-validated deck generation, and native PPTX/PDF export.
 
 ---
 
-## Overview
+## What this is
 
-PitchKu is a platform that simplifies business presentation creation for Indonesian
-small business owners and solopreneurs. This repository contains the **backend
-service** — the API, AI orchestration engine, and export pipeline that power the
-product.
+PitchKu turns a short business description into a ready-to-download slide deck.
+This repo is the backend: the API, the LLM orchestration layer, image sourcing,
+and the export pipeline. There's no frontend here — this service is consumed by
+a separate web client over a plain REST API (see `docs/API-CONTRACT.md`).
 
-The service coordinates a two-stage LLM pipeline (outline generation, followed by
-structured slide content generation), enforcing strict JSON schema validation at
-every step to guarantee predictable, overflow-free output. It handles
-multi-tenant authentication and data isolation via Supabase, brand identity
-locking (logo, color palette, typography), stock image sourcing with automatic
-provider fallback, and native — not rasterized — PPTX/PDF export, ensuring every
-generated deck remains fully editable in Microsoft PowerPoint and Google Slides.
+The core flow is two LLM calls, not one. First, an outline (titles + one-line
+objectives per slide) that the user can review and edit. Then, once confirmed,
+a second call fills in the actual slide content — bullets, cards, metrics,
+whatever the layout calls for — using the confirmed outline and the business's
+brand kit as context. Splitting it this way keeps the expensive part (full
+content generation) from running until the user has actually approved the
+structure, and it's cheaper to regenerate a rejected outline than a rejected
+full deck.
 
-Correctness and cost-efficiency are treated as first-class design constraints, not
-afterthoughts: every LLM call is schema-enforced, retried deterministically on
-validation failure, and logged with full token/cost telemetry.
+Every LLM response is validated against a Zod schema before it's trusted, and
+if it doesn't match — wrong field, string too long, one card too many — the
+model gets a second and third shot with the specific validation error fed back
+into the prompt. This turned out to matter more than expected: see the "LLM
+provider" note below.
 
----
+## Stack
 
-## Tech Stack
+| Layer | What's used |
+|---|---|
+| Runtime | Node.js 20, TypeScript (strict) |
+| Framework | Express 5 |
+| Dev server | tsx watch (no build step during development) |
+| Validation | Zod — one schema definition, reused for API contracts, DB round-trips, and LLM output validation |
+| Database / Auth / Storage | Supabase (Postgres + RLS, Storage buckets, Auth) |
+| LLM | Claude Fable 5.1, served through Elice ML API's OpenAI-compatible endpoint (`openai` SDK, custom `baseURL`) |
+| PPTX export | pptxgenjs |
+| PDF export | Puppeteer (headless print of hand-built HTML) |
+| Stock images | Unsplash (primary), Pexels (fallback) |
+| Logging | Pino |
+| Lint/format | ESLint 9 flat config + `eslint-plugin-boundaries`, Prettier |
 
-| Layer           | Technology                                                                        |
-| --------------- | --------------------------------------------------------------------------------- |
-| Runtime         | Node.js, TypeScript (strict mode)                                                 |
-| Framework       | Express                                                                           |
-| Dev Runtime     | tsx (fast TS execution, no manual build step in development)                      |
-| Validation      | Zod (single source of truth for API contracts and LLM structured outputs)         |
-| Database & Auth | Supabase (PostgreSQL, Row Level Security, Storage, Auth)                          |
-| AI Provider     | LLM API with native structured output enforcement                                 |
-| Export Engine   | pptxgenjs (native PPTX), Puppeteer (PDF)                                          |
-| Image Sourcing  | Unsplash API (primary), Pexels API (fallback)                                     |
-| Logging         | Pino                                                                              |
-| Testing         | Vitest, Supertest                                                                 |
-| Linting         | ESLint 9 (flat config) + `eslint-plugin-boundaries` for enforced module isolation |
+### A note on the LLM provider
 
----
+This isn't calling Anthropic's API directly. It goes through Elice ML API,
+which fronts Claude Fable 5.1 behind an OpenAI-compatible `/chat/completions`
+endpoint. That sounded like it would support OpenAI's structured-output
+(`response_format: json_schema`) out of the box — it doesn't. Behind the
+scenes the gateway implements `response_format` by forcing a tool call, and
+this model rejects forced tool choice outright (`400: tool_choice type "tool"
+and "any" are not supported for this model`). Confirmed this is specific to
+the `response_format` parameter itself, not a schema or payload issue, by
+sending the exact same request with and without it.
+
+Practical result: `llm-client.ts` sends plain chat completions with no
+`response_format` at all. The system prompt spells out the exact JSON shape in
+plain English, the response gets stripped of markdown fences defensively (the
+model doesn't always listen), parsed, and validated against the real Zod
+schema. If validation fails, `ai-engine.retry.ts` sends it back with the
+specific error and tries again — up to two retries. This was already the plan
+for handling occasional malformed output; it just ended up being the *only*
+line of defense instead of a backup for provider-side enforcement. Worth
+knowing before you go looking for `response_format` anywhere in this codebase.
 
 ## Architecture
 
-This service follows a **modular monolith** pattern: a single deployable unit,
-internally organized into clearly bounded feature modules. Each module owns its
-controller, service, repository, and type definitions, and exposes only a public
-contract through a barrel `index.ts` file — internal implementation details are
-never imported directly by other modules.
-
-Dependency direction is enforced automatically via `eslint-plugin-boundaries`:
-feature modules may depend on shared utilities and config, but never reach into
-another module's internals, and shared code never depends back on a feature
-module. This keeps the codebase easy to navigate today and straightforward to
-extract into standalone services later, should scale ever require it — without
-premature distributed-system complexity.
+Modular monolith — one deployable process, but internally split into
+self-contained feature modules. Each module owns its controller, service,
+repository, and schema, and the only thing another module is allowed to import
+is its `index.ts` barrel. `eslint-plugin-boundaries` enforces this at lint
+time, so a module reaching into another module's internals fails CI, not just
+review.
 
 ```
 src/
 ├── modules/
-│   ├── auth/              → Supabase Auth sync, JWT middleware
-│   ├── brand-kit/         → Brand identity CRUD, logo upload, HEX validation
-│   ├── projects/          → Project CRUD, outline confirmation, versioning
-│   ├── ai-engine/         → Two-stage LLM orchestration, schema validation, retry
-│   ├── image-service/     → Stock photo sourcing with provider fallback
-│   ├── export-engine/     → Native PPTX/PDF generation, layout mapping
-│   └── generation-logs/   → Token usage & cost tracking
+│   ├── auth/              — Supabase Auth proxy (login/signup so clients
+│   │                         never hold the Supabase anon key), JWT
+│   │                         middleware, profile sync
+│   ├── brand-kit/          — logo upload to Storage, HEX-validated palette
+│   ├── projects/           — project CRUD, deck_versions snapshotting
+│   ├── ai-engine/          — outline + content generation, prompt building,
+│   │                         schema validation, retry orchestration
+│   ├── image-service/      — Unsplash → Pexels → placeholder, in-memory cache
+│   ├── export-engine/      — PPTX layout mapping, PDF via Puppeteer
+│   └── generation-logs/    — token usage + estimated cost per LLM call
 ├── shared/
-│   ├── schemas/           → Zod schemas — single source of truth across the app
-│   ├── lib/               → LLM client, Supabase client, retry utils, logger
-│   ├── middleware/        → Error handler, request validation
-│   └── errors/            → Domain-specific error classes
-├── config/                → Environment parsing, constants, layout mapping table
-├── app.ts                 → Express app setup, route registration
-└── server.ts              → Entry point
+│   ├── schemas/            — deck.schema.ts is the canonical slide contract
+│   │                         (discriminated union on `layout`, one schema
+│   │                         per slide type — not one big schema with a pile
+│   │                         of optional fields)
+│   ├── lib/                — LLM client, Supabase client, logger
+│   ├── middleware/          — error handler, generic Zod request validator
+│   └── errors/              — typed error hierarchy (AppError subclasses),
+│                              each carrying its own HTTP status + error code
+├── config/
+├── app.ts
+└── server.ts
 ```
 
-Full API contract (endpoints, request/response shapes, error codes) is documented
-in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md). Coding conventions and error
-handling patterns are documented in [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md).
+Two modules bend the standard `controller/service/repository/schema` shape on
+purpose:
 
----
+- **`auth`** has no repository — it's one upsert, so a whole repository file
+  for that would just be indirection.
+- **`ai-engine`** and **`export-engine`** each have extra files
+  (`*.prompt.ts`, `*.retry.ts`, `*.validator.ts` / `*.layout-map.ts`,
+  `*.pptx.ts`, `*.pdf.ts`) because those are genuinely separate concerns —
+  prompt wording changes far more often than orchestration logic, so keeping
+  them apart means tuning prompts doesn't risk the retry logic around them.
 
-## Getting Started
+Full endpoint list, request/response shapes, and error codes:
+[`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md). Naming conventions, error
+handling patterns, and a couple of TypeScript strict-mode gotchas worth
+knowing before you touch `shared/`: [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md).
 
-### Prerequisites
+## Getting started
 
-- Node.js `v20.x` or later
-- npm `v10.x` or later
-- A Supabase project (or the Supabase CLI for local development)
-- API keys: LLM provider, Unsplash, Pexels
+### You'll need
 
-### Installation
+- Node.js 20+, npm 10+
+- A Supabase project — cloud, not the local Docker stack (see note below)
+- An Elice ML API key for Claude Fable 5.1
+- Unsplash and Pexels API keys (both free tier)
+
+### Setup
 
 ```bash
 git clone https://github.com/<your-org>/pitchku-backend.git
 cd pitchku-backend
 npm install
-```
-
-### Environment Configuration
-
-Copy the example environment file and fill in your own credentials:
-
-```bash
 cp .env.example .env
 ```
 
-Required variables are documented inline in `.env.example`, covering Supabase
-credentials, LLM provider configuration, and stock image API keys.
+Fill in `.env` — Supabase URL/keys, `LLM_API_KEY` + `LLM_BASE_URL` (your Elice
+endpoint, ending in `/v1`), and the image provider keys.
 
-### Database Setup
-
-Apply the schema and Row Level Security policies via the Supabase CLI:
+### Database
 
 ```bash
-npx supabase start
-npx supabase db reset
+npx supabase login
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
 ```
 
-### Running the Service
+This applies both the schema migration and the RLS policies (they're separate
+migration files, applied in order). Local Docker-based Supabase (`supabase
+start`) works too if you want it, but wasn't used here — the Windows Docker
+Desktop setup for the local stack's analytics/storage containers turned out to
+be more friction than it was worth for a solo backend dev; developing directly
+against a cloud project was faster.
+
+You'll also need two Storage buckets, created manually in the dashboard (not
+part of the SQL migrations): `brand-assets` and `exports`, both public.
+
+### Run it
 
 ```bash
 npm run dev
 ```
 
-Starts the server with `tsx watch`, auto-restarting on file changes — no manual
-compile step required during development.
+`tsx watch` restarts on file changes. Hit `GET /health` to confirm it's up.
 
-### Building for Production
+### Build for production
 
 ```bash
 npm run build
 npm start
 ```
 
-`tsc-alias` resolves path aliases (`@modules/*`, `@shared/*`, `@config/*`) in the
-compiled output, so the build runs correctly under plain Node.js without
-requiring alias resolution at runtime.
+`tsc-alias` rewrites the `@modules/*` / `@shared/*` / `@config/*` path aliases
+in the compiled output — without it, the aliases resolve fine under `tsx` but
+break under plain `node dist/server.js`.
 
----
+## Scripts
 
-## Available Scripts
+| Command | Does what |
+|---|---|
+| `npm run dev` | dev server, hot reload |
+| `npm run build` | compile + resolve path aliases |
+| `npm start` | run the compiled build |
+| `npm run lint` | ESLint |
+| `npm run format` | Prettier |
+| `npm test` | Vitest |
 
-| Command              | Description                                 |
-| -------------------- | ------------------------------------------- |
-| `npm run dev`        | Start development server with hot reload    |
-| `npm run build`      | Compile TypeScript and resolve path aliases |
-| `npm start`          | Run the compiled production build           |
-| `npm run lint`       | Run ESLint across the codebase              |
-| `npm run format`     | Format the codebase with Prettier           |
-| `npm test`           | Run the test suite once                     |
-| `npm run test:watch` | Run the test suite in watch mode            |
+## Where things stand
 
----
+Every endpoint in the API contract has been exercised manually end-to-end —
+signup through login through project creation through outline generation
+through content generation through image sourcing through PPTX/PDF export —
+against a real Supabase project and the real LLM provider, not mocks. What
+hasn't happened yet is automated test coverage: `tests/unit` and
+`tests/integration` are set up (Vitest + Supertest are installed and
+configured) but empty. That's a known gap, not an oversight — see
+`docs/CONVENTIONS.md` section 10 for the reasoning and what a first pass at
+coverage should probably prioritize.
 
-## Code Quality & Contribution Standards
+## Known issues
 
-This repository enforces consistency through tooling rather than convention alone:
-
-- **TypeScript strict mode** — including `noUncheckedIndexedAccess` and
-  `exactOptionalPropertyTypes`, given how frequently the deck schema relies on
-  optional fields.
-- **ESLint boundary rules** — module dependency direction is checked automatically;
-  a pull request that violates module isolation will fail CI, not just review.
-- **Conventional Commits** — commit messages are validated via commitlint.
-- **Pre-commit hooks** — Husky + lint-staged run linting and formatting on staged
-  files before every commit.
-- **CI pipeline** — every pull request runs lint → type-check → test → build.
-
-See [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) for naming patterns, error
-handling conventions, and logging standards expected across all modules.
-
----
-
-## Known Issues
-
-- `npm audit` reports a high-severity advisory in `image-size`, a transitive
-  dependency of `pptxgenjs`, related to DoS vulnerabilities in ICNS/JXL/HEIF
-  parsing. This application never processes those file formats (uploads are
-  restricted to PNG/JPG/SVG per brand kit requirements), so the risk is not
-  applicable to this codebase's attack surface. Resolving it requires a major
-  downgrade of `pptxgenjs`, which is not currently justified.
-
----
+- `npm audit` flags `image-size` (a transitive dependency of `pptxgenjs`) for
+  a DoS vulnerability in ICNS/JXL/HEIF parsing. Nothing in this codebase
+  touches those formats — logo uploads are restricted to PNG/JPG/SVG — so the
+  fix (a major `pptxgenjs` downgrade) isn't worth the trade.
+- `pptxgenjs`'s `ShapeType` enum has an inconsistent export path across its
+  own type definitions (default export vs. instance property vs. named
+  export all failed at different points). The card-grid layout renders its
+  card background as an empty text box with `fill`/`line` instead of
+  `addShape`, which sidesteps the whole thing and looks identical.
 
 ## License
 
-Proprietary — developed as part of a capstone sprint project. Not licensed for
-external use or distribution at this stage.
+Proprietary, built as a capstone project. Not licensed for reuse or
+redistribution.
