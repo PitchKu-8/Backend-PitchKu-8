@@ -1,9 +1,8 @@
 {
   "compilerOptions": {
-    "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "module": "commonjs",
-    "moduleResolution": "node",
+    "moduleResolution": "node10",
     "lib": ["ES2022"],
     "types": ["node"],
 
@@ -26,11 +25,10 @@
 
     "sourceMap": true,
 
-    "baseUrl": ".",
     "paths": {
-      "@modules/*": ["src/modules/*"],
-      "@shared/*": ["src/shared/*"],
-      "@config/*": ["src/config/*"]
+      "@modules/*": ["./src/modules/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@config/*": ["./src/config/*"]
     }
   },
   "include": ["src/**/*.ts"],

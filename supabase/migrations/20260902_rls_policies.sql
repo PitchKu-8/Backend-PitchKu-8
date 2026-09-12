@@ -1,5 +1,5 @@
 -- =========================================
--- Enable RLS on every table
+-- Aktifkan RLS di setiap tabel
 -- =========================================
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.brand_kits ENABLE ROW LEVEL SECURITY;
@@ -8,7 +8,7 @@ ALTER TABLE public.deck_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.generation_logs ENABLE ROW LEVEL SECURITY;
 
 -- =========================================
--- 1. Profiles — users can only read/modify their own profile
+-- 1. Profiles — user hanya bisa baca/ubah profilenya sendiri
 -- =========================================
 CREATE POLICY "profiles_select_own"
   ON public.profiles FOR SELECT
@@ -23,7 +23,7 @@ CREATE POLICY "profiles_insert_own"
   WITH CHECK (auth.uid() = id);
 
 -- =========================================
--- 2. Brand Kits — owned exclusively by the logged-in user
+-- 2. Brand Kits — hanya milik user yang login
 -- =========================================
 CREATE POLICY "brand_kits_select_own"
   ON public.brand_kits FOR SELECT
@@ -42,7 +42,7 @@ CREATE POLICY "brand_kits_delete_own"
   USING (auth.uid() = user_id);
 
 -- =========================================
--- 3. Projects — owned exclusively by the logged-in user
+-- 3. Projects — hanya milik user yang login
 -- =========================================
 CREATE POLICY "projects_select_own"
   ON public.projects FOR SELECT
@@ -61,7 +61,7 @@ CREATE POLICY "projects_delete_own"
   USING (auth.uid() = user_id);
 
 -- =========================================
--- 4. Deck Versions — access via project ownership (no direct user_id column)
+-- 4. Deck Versions — akses lewat kepemilikan project (tidak ada kolom user_id langsung)
 -- =========================================
 CREATE POLICY "deck_versions_select_via_project"
   ON public.deck_versions FOR SELECT
@@ -76,7 +76,7 @@ CREATE POLICY "deck_versions_insert_via_project"
   );
 
 -- =========================================
--- 5. Generation Logs — read-only for users, access via project ownership
+-- 5. Generation Logs — read-only untuk user, akses lewat kepemilikan project
 -- =========================================
 CREATE POLICY "generation_logs_select_via_project"
   ON public.generation_logs FOR SELECT
