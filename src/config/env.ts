@@ -1,6 +1,6 @@
 // src/config/env.ts
-import "dotenv/config";
-import { z } from "zod";
+import 'dotenv/config';
+import { z } from 'zod';
 
 /**
  * Treats empty string as undefined before validation. Needed because
@@ -8,16 +8,11 @@ import { z } from "zod";
  * variable — so a plain `.optional()` alone would still fail `.min(1)`.
  */
 const optionalString = () =>
-  z.preprocess(
-    (val) => (val === "" ? undefined : val),
-    z.string().min(1).optional(),
-  );
+  z.preprocess((val) => (val === '' ? undefined : val), z.string().min(1).optional());
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
-  NODE_ENV: z
-    .enum(["development", "production", "test"])
-    .default("development"),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
@@ -36,13 +31,15 @@ const envSchema = z.object({
   PEXELS_API_KEY: optionalString(),
 
   MAX_LOGO_FILE_SIZE_MB: z.coerce.number().int().positive().default(2),
+
+  CORS_ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
 });
 
 function loadEnv() {
   const parsed = envSchema.safeParse(process.env);
 
   if (!parsed.success) {
-    console.error("❌ Invalid environment variables:");
+    console.error('❌ Invalid environment variables:');
     console.error(parsed.error.format());
     process.exit(1);
   }
