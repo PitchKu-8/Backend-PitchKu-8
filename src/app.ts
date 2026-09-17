@@ -4,7 +4,9 @@ import {
   generateOutlineHandler,
   confirmOutlineHandler,
   generateContentHandler,
+  saveSlidesHandler,
   ConfirmOutlineRequestSchema,
+  SaveSlidesRequestSchema,
 } from '@modules/ai-engine';
 import {
   authMiddleware,
@@ -113,6 +115,12 @@ export function createApp(): Express {
     authMiddleware,
     validateRequest(ConfirmOutlineRequestSchema),
     confirmOutlineHandler,
+  );
+  app.patch(
+    '/v1/projects/:id/content',
+    authMiddleware,
+    validateRequest(SaveSlidesRequestSchema),
+    saveSlidesHandler,
   );
   app.post('/v1/projects/:id/content', authMiddleware, generateContentHandler);
 

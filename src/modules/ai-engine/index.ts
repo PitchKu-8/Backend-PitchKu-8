@@ -3,7 +3,8 @@ export {
   generateOutlineHandler,
   confirmOutlineHandler,
   generateContentHandler,
-} from "./ai-engine.controller";
-export { ConfirmOutlineRequestSchema } from "./ai-engine.schema";
-export type { ConfirmOutlineRequest } from "./ai-engine.schema";
-export type { DeckVersionPayload } from "./ai-engine.types";
+  saveSlidesHandler,
+} from './ai-engine.controller';
+export { ConfirmOutlineRequestSchema, SaveSlidesRequestSchema } from './ai-engine.schema';
+export type { ConfirmOutlineRequest, SaveSlidesRequest } from './ai-engine.schema';
+export type { DeckVersionPayload } from './ai-engine.types';
