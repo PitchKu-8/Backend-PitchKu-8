@@ -1,41 +1,44 @@
 // src/modules/ai-engine/ai-engine.service.ts
-import { env } from "@config/env";
-import { getActiveBrandKit } from "@modules/brand-kit";
-import { logGeneration } from "@modules/generation-logs";
-import { searchImage } from "@modules/image-service";
+import { env } from '@config/env';
+import { getActiveBrandKit } from '@modules/brand-kit';
+import { logGeneration } from '@modules/generation-logs';
+import { searchImage } from '@modules/image-service';
 import {
   appendDeckVersion,
   findProjectById,
   getLatestDeckVersion,
   updateProjectStatus,
-} from "@modules/projects";
-import { NotFoundError, StateConflictError } from "@shared/errors/app-errors";
-import { createModuleLogger } from "@shared/lib/logger";
+} from '@modules/projects';
+import {
+  NotFoundError,
+  StateConflictError,
+  OutlineGenerationFailedError,
+  ContentGenerationFailedError,
+} from '@shared/errors/app-errors';
+import { createModuleLogger } from '@shared/lib/logger';
 import {
   OutlineSchema,
   PitchKuDeckPayloadSchema,
   SlideSchema,
   type Outline,
   type PitchKuDeckPayload,
-} from "@shared/schemas/deck.schema";
-import { z } from "zod";
+} from '@shared/schemas/deck.schema';
+import { z } from 'zod';
 
 import {
   buildContentSystemPrompt,
   buildContentUserPrompt,
   buildOutlineSystemPrompt,
   buildOutlineUserPrompt,
-} from "./ai-engine.prompt";
-import { generateStructuredWithRetry } from "./ai-engine.retry";
-import type { DeckVersionPayload } from "./ai-engine.types";
+} from './ai-engine.prompt';
+import { generateStructuredWithRetry } from './ai-engine.retry';
+import type { DeckVersionPayload } from './ai-engine.types';
 
-const log = createModuleLogger("ai-engine");
+const log = createModuleLogger('ai-engine');
 
 function requireLlmConfig(): { outlineModel: string; contentModel: string } {
   if (!env.LLM_MODEL_OUTLINE || !env.LLM_MODEL_CONTENT) {
-    throw new Error(
-      "LLM_MODEL_OUTLINE and LLM_MODEL_CONTENT must be configured",
-    );
+    throw new Error('LLM_MODEL_OUTLINE and LLM_MODEL_CONTENT must be configured');
   }
   return {
     outlineModel: env.LLM_MODEL_OUTLINE,
@@ -59,10 +62,7 @@ const ContentGenerationOutputSchema = z.object({
  * outcome (success/retry/failed) is recorded to generation_logs
  * (FR-06.2) regardless of whether it ultimately succeeds.
  */
-export async function generateOutline(
-  userId: string,
-  projectId: string,
-): Promise<Outline> {
+export async function generateOutline(userId: string, projectId: string): Promise<Outline> {
   const { outlineModel } = requireLlmConfig();
 
   const project = await findProjectById(userId, projectId);
@@ -72,58 +72,58 @@ export async function generateOutline(
 
   const latestVersion = await getLatestDeckVersion(projectId);
   if (!latestVersion) {
-    throw new StateConflictError(
-      `Project ${projectId} has no stored business context`,
-    );
+    throw new StateConflictError(`Project ${projectId} has no stored business context`);
   }
 
-  const versionPayload =
-    latestVersion.slidesJson as unknown as DeckVersionPayload;
+  const versionPayload = latestVersion.slidesJson as unknown as DeckVersionPayload;
 
   const startedAt = Date.now();
 
-  let result: Awaited<
-    ReturnType<typeof generateStructuredWithRetry<{ outline: Outline }>>
-  >;
+  let result: Awaited<ReturnType<typeof generateStructuredWithRetry<{ outline: Outline }>>>;
   try {
     result = await generateStructuredWithRetry({
       model: outlineModel,
       systemPrompt: buildOutlineSystemPrompt(),
       buildUserPrompt: (correctionNote) => {
-        const base = buildOutlineUserPrompt(
-          project.templateType,
-          versionPayload.businessContext,
-        );
+        const base = buildOutlineUserPrompt(project.templateType, versionPayload.businessContext);
         return correctionNote
           ? `${base}\n\nYour previous attempt had these issues, please fix them:\n${correctionNote}`
           : base;
       },
       schema: OutlineGenerationOutputSchema,
       maxTokens: 2000,
-      logAction: "generateOutline",
+      logAction: 'generateOutline',
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     await logGeneration({
       projectId,
-      stage: "outline",
+      stage: 'outline',
       modelName: outlineModel,
       promptTokens: 0,
       completionTokens: 0,
       durationMs: Date.now() - startedAt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "Unknown error",
+      status: 'failed',
+      errorMessage,
     });
-    throw error;
+    // PERBAIKAN: dulu `throw error;` (error mentah, bisa SyntaxError dari
+    // JSON.parse, dsb.) — jatuh ke 500 INTERNAL_SERVER_ERROR generic di
+    // error-handler. Sekarang dibungkus sebagai AppError yang sesuai
+    // (422 AI_OUTLINE_GENERATION_FAILED per API Contract), dengan pesan
+    // yang aman ditampilkan ke user.
+    throw new OutlineGenerationFailedError('Gagal membuat outline presentasi. Silakan coba lagi.', {
+      cause: errorMessage,
+    });
   }
 
   await logGeneration({
     projectId,
-    stage: "outline",
+    stage: 'outline',
     modelName: outlineModel,
     promptTokens: result.usage.inputTokens,
     completionTokens: result.usage.outputTokens,
     durationMs: Date.now() - startedAt,
-    status: result.retryCount > 0 ? "retry" : "success",
+    status: result.retryCount > 0 ? 'retry' : 'success',
   });
 
   await appendDeckVersion(projectId, {
@@ -133,12 +133,12 @@ export async function generateOutline(
 
   log.info(
     {
-      action: "generateOutline",
+      action: 'generateOutline',
       projectId,
       retryCount: result.retryCount,
       usage: result.usage,
     },
-    "Outline generated",
+    'Outline generated',
   );
 
   return result.data.outline;
@@ -162,13 +162,10 @@ export async function confirmOutline(
 
   const latestVersion = await getLatestDeckVersion(projectId);
   if (!latestVersion) {
-    throw new StateConflictError(
-      `Project ${projectId} has no stored business context`,
-    );
+    throw new StateConflictError(`Project ${projectId} has no stored business context`);
   }
 
-  const versionPayload =
-    latestVersion.slidesJson as unknown as DeckVersionPayload;
+  const versionPayload = latestVersion.slidesJson as unknown as DeckVersionPayload;
 
   await appendDeckVersion(projectId, {
     businessContext: versionPayload.businessContext,
@@ -199,13 +196,10 @@ export async function generateContent(
 
   const latestVersion = await getLatestDeckVersion(projectId);
   if (!latestVersion) {
-    throw new StateConflictError(
-      `Project ${projectId} has no stored business context`,
-    );
+    throw new StateConflictError(`Project ${projectId} has no stored business context`);
   }
 
-  const versionPayload =
-    latestVersion.slidesJson as unknown as DeckVersionPayload;
+  const versionPayload = latestVersion.slidesJson as unknown as DeckVersionPayload;
 
   if (!versionPayload.outline) {
     throw new StateConflictError(
@@ -216,7 +210,7 @@ export async function generateContent(
   const brandKit = await getActiveBrandKit(userId);
   if (!brandKit || !brandKit.logoUrl) {
     throw new StateConflictError(
-      "Brand kit with a logo must be set up before generating slide content",
+      'Brand kit with a logo must be set up before generating slide content',
     );
   }
 
@@ -226,7 +220,7 @@ export async function generateContent(
   let result: Awaited<
     ReturnType<
       typeof generateStructuredWithRetry<{
-        slides: PitchKuDeckPayload["slides"];
+        slides: PitchKuDeckPayload['slides'];
       }>
     >
   >;
@@ -246,30 +240,38 @@ export async function generateContent(
       },
       schema: ContentGenerationOutputSchema,
       maxTokens: 8000,
-      logAction: "generateContent",
+      logAction: 'generateContent',
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     await logGeneration({
       projectId,
-      stage: "content",
+      stage: 'content',
       modelName: contentModel,
       promptTokens: 0,
       completionTokens: 0,
       durationMs: Date.now() - startedAt,
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : "Unknown error",
+      status: 'failed',
+      errorMessage,
     });
-    throw error;
+    // PERBAIKAN: sama seperti generateOutline — bungkus sebagai AppError
+    // (422 AI_CONTENT_GENERATION_FAILED) alih-alih melempar error mentah
+    // yang jatuh ke 500 generic. Ini kasus yang persis memicu error
+    // "Unterminated string in JSON" yang Anda alami sebelumnya.
+    throw new ContentGenerationFailedError(
+      'Gagal membuat isi slide presentasi. Silakan coba lagi.',
+      { cause: errorMessage },
+    );
   }
 
   await logGeneration({
     projectId,
-    stage: "content",
+    stage: 'content',
     modelName: contentModel,
     promptTokens: result.usage.inputTokens,
     completionTokens: result.usage.outputTokens,
     durationMs: Date.now() - startedAt,
-    status: result.retryCount > 0 ? "retry" : "success",
+    status: result.retryCount > 0 ? 'retry' : 'success',
   });
 
   const assembledPayload: PitchKuDeckPayload = {
@@ -312,17 +314,44 @@ export async function generateContent(
     slides: finalPayload.slides,
   } satisfies DeckVersionPayload);
 
-  await updateProjectStatus(projectId, "completed");
+  await updateProjectStatus(projectId, 'completed');
 
   log.info(
     {
-      action: "generateContent",
+      action: 'generateContent',
       projectId,
       retryCount: result.retryCount,
       usage: result.usage,
     },
-    "Content generated",
+    'Content generated',
   );
 
   return finalPayload;
+}
+
+export async function saveSlides(
+  userId: string,
+  projectId: string,
+  slides: PitchKuDeckPayload['slides'],
+): Promise<PitchKuDeckPayload['slides']> {
+  const project = await findProjectById(userId, projectId);
+  if (!project) throw new NotFoundError(`Project ${projectId} not found`);
+
+  const latestVersion = await getLatestDeckVersion(projectId);
+  if (!latestVersion)
+    throw new StateConflictError(`Project ${projectId} has no stored business context`);
+  const versionPayload = latestVersion.slidesJson as unknown as DeckVersionPayload;
+
+  if (!versionPayload.outline) {
+    throw new StateConflictError(`Project ${projectId} has no confirmed outline`);
+  }
+
+  await appendDeckVersion(projectId, {
+    businessContext: versionPayload.businessContext,
+    outline: versionPayload.outline,
+    slides,
+  } satisfies DeckVersionPayload);
+
+  log.info({ action: 'saveSlides', projectId, userId }, 'Slide edits saved');
+  return slides;
 }
